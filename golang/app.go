@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var (
@@ -333,6 +334,7 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]Data, 0, len(arg))
 	for service, conf := range arg {
+		//start := time.Now()
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
 		var tokenType *string
@@ -362,8 +364,9 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 			ks[i] = s
 		}
 		uri := fmt.Sprintf(*uriTemplate, ks...)
-
 		data = append(data, Data{service, fetchApi(method, uri, headers, params)})
+		//end := time.Now()
+		//fmt.Printf("apiapiapi: %s %f秒\n", uri, (end.Sub(start)).Seconds())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
