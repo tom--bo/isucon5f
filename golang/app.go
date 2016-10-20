@@ -315,6 +315,7 @@ func fetchApi(ch chan map[string]interface{}, method, uri string, headers, param
 	var data map[string]interface{}
 	d := json.NewDecoder(resp.Body)
 	d.UseNumber()
+	fmt.Println("%+v", d)
 	checkErr(d.Decode(&data))
 	ch <- data
 }
@@ -332,10 +333,10 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	var arg Arg
 	checkErr(json.Unmarshal([]byte(argJson), &arg))
 
-	ws := make(map[string]Service)
+	ws := make(map[string]*Service)
 	rs := make(map[string]int)
 	data := make([]Data, 0, len(arg))
-	ch := make(chan map[string]interface{})
+	ch := make(chan map[string]interface{}, 1)
 	for service, conf := range arg {
 		if service == "ken" || service == "ken2" {
 			_, ok := rs["ken"]
@@ -396,12 +397,12 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 		//end := time.Now()
 		//fmt.Printf("apiapiapi: %s %f秒\n", uri, (end.Sub(start)).Seconds())
 	}
-	for service, _ := range arg {
+	for service, _ := range rs {
 		retData := <-ch
 		data = append(data, Data{service, retData})
 	}
 
-	ch2 := make(chan map[string]interface{})
+	ch2 := make(chan map[string]interface{}, 1)
 	for service, conf := range ws {
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
