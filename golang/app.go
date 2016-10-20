@@ -22,7 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
+	// "time"
 )
 
 var (
@@ -277,7 +277,7 @@ func PostModify(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/modify", http.StatusSeeOther)
 }
 
-func fetchApi(method, uri string, headers, params map[string]string) map[string]interface{} {
+func fetchApi(ch chan map[string]interface{}, method, uri string, headers, params map[string]string) {
 	client := &http.Client{}
 	if strings.HasPrefix(uri, "https://") {
 		tr := &http.Transport{
@@ -316,7 +316,7 @@ func fetchApi(method, uri string, headers, params map[string]string) map[string]
 	d := json.NewDecoder(resp.Body)
 	d.UseNumber()
 	checkErr(d.Decode(&data))
-	return data
+	ch <- data
 }
 
 func GetData(w http.ResponseWriter, r *http.Request) {
@@ -333,7 +333,11 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	checkErr(json.Unmarshal([]byte(argJson), &arg))
 
 	data := make([]Data, 0, len(arg))
+	ch := make(chan map[string]interface{})
 	for service, conf := range arg {
+		if service == "ken" {
+			continue
+		}
 		//start := time.Now()
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
@@ -364,9 +368,14 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 			ks[i] = s
 		}
 		uri := fmt.Sprintf(*uriTemplate, ks...)
-		data = append(data, Data{service, fetchApi(method, uri, headers, params)})
+		go fetchApi(ch, method, uri, headers, params)
+
 		//end := time.Now()
 		//fmt.Printf("apiapiapi: %s %f秒\n", uri, (end.Sub(start)).Seconds())
+	}
+	for service, _ := range arg {
+		retData := <-ch
+		data = append(data, Data{service, retData})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
