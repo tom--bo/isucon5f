@@ -332,11 +332,34 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	var arg Arg
 	checkErr(json.Unmarshal([]byte(argJson), &arg))
 
+	ws := make(map[string]Service)
+	rs := make(map[string]int)
 	data := make([]Data, 0, len(arg))
 	ch := make(chan map[string]interface{})
 	for service, conf := range arg {
-		if service == "ken" {
-			continue
+		if service == "ken" || service == "ken2" {
+			_, ok := rs["ken"]
+			_, ok2 := rs["ken2"]
+			if ok || ok2 {
+				ws[service] = conf
+				continue
+			}
+		} else if service == "surname" || service == "givenname" {
+			_, ok := rs["surname"]
+			_, ok2 := rs["givenname"]
+			if ok || ok2 {
+				ws[service] = conf
+				continue
+			}
+		} else if service == "perfectsec" || service == "perfectsec_attacked" {
+			_, ok := rs["perfectsec"]
+			_, ok2 := rs["perfectsec_attacked"]
+			if ok || ok2 {
+				ws[service] = conf
+				continue
+			}
+		} else {
+			rs[service] = 1
 		}
 		//start := time.Now()
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
@@ -375,6 +398,45 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	}
 	for service, _ := range arg {
 		retData := <-ch
+		data = append(data, Data{service, retData})
+	}
+
+	ch2 := make(chan map[string]interface{})
+	for service, conf := range ws {
+		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
+		var method string
+		var tokenType *string
+		var tokenKey *string
+		var uriTemplate *string
+		checkErr(row.Scan(&method, &tokenType, &tokenKey, &uriTemplate))
+
+		headers := make(map[string]string)
+		params := conf.Params
+		if params == nil {
+			params = make(map[string]string)
+		}
+
+		if tokenType != nil && tokenKey != nil {
+			switch *tokenType {
+			case "header":
+				headers[*tokenKey] = conf.Token
+				break
+			case "param":
+				params[*tokenKey] = conf.Token
+				break
+			}
+		}
+
+		ks := make([]interface{}, len(conf.Keys))
+		for i, s := range conf.Keys {
+			ks[i] = s
+		}
+		uri := fmt.Sprintf(*uriTemplate, ks...)
+		go fetchApi(ch2, method, uri, headers, params)
+	}
+
+	for service, _ := range ws {
+		retData := <-ch2
 		data = append(data, Data{service, retData})
 	}
 
