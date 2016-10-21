@@ -279,7 +279,7 @@ func PostModify(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/modify", http.StatusSeeOther)
 }
 
-func fetchApi(ch chan map[string]interface{}, method, uri string, headers, params map[string]string) {
+func fetchApi(ch chan Data, method, uri string, headers, params map[string]string, service string) {
 	client := &http.Client{}
 	if strings.HasPrefix(uri, "https://") {
 		tr := &http.Transport{
@@ -323,7 +323,7 @@ func fetchApi(ch chan map[string]interface{}, method, uri string, headers, param
 	fmt.Printf("%+v\n", string(str))
 	checkErr(d.Decode(&data))
 	fmt.Printf("%+v\n", data)
-	ch <- data
+	ch <- Data{service, data}
 }
 
 func GetData(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +343,7 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	rs := make(map[string]int)
 	// data := make([]Data, 0, len(arg))
 	data := make([]Data, 0, 0)
-	ch := make(chan map[string]interface{}, 1)
+	ch := make(chan Data)
 	for service, conf := range arg {
 		if service == "ken" || service == "ken2" {
 			_, ok := rs["ken"]
@@ -399,17 +399,17 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 			ks[i] = s
 		}
 		uri := fmt.Sprintf(*uriTemplate, ks...)
-		go fetchApi(ch, method, uri, headers, params)
+		go fetchApi(ch, method, uri, headers, params, service)
 
 		//end := time.Now()
 		//fmt.Printf("apiapiapi: %s %f秒\n", uri, (end.Sub(start)).Seconds())
 	}
-	for service, _ := range rs {
+	for i := 0; i < len(rs); i++ {
 		retData := <-ch
-		data = append(data, Data{service, retData})
+		data = append(data, retData)
 	}
 
-	ch2 := make(chan map[string]interface{}, 1)
+	ch2 := make(chan Data)
 	for service, conf := range ws {
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
@@ -440,12 +440,12 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 			ks[i] = s
 		}
 		uri := fmt.Sprintf(*uriTemplate, ks...)
-		go fetchApi(ch2, method, uri, headers, params)
+		go fetchApi(ch2, method, uri, headers, params, service)
 	}
 
-	for service, _ := range ws {
+	for i := 0; i < len(ws); i++ {
 		retData := <-ch2
-		data = append(data, Data{service, retData})
+		data = append(data, retData)
 	}
 
 	fmt.Printf("%+v\n", data)
