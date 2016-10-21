@@ -22,6 +22,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -329,7 +330,6 @@ func fetchApi(ch chan Data, method, uri string, headers, params map[string]strin
 	}
 	resp, err := client.Do(req)
 	checkErr(err)
-
 	defer resp.Body.Close()
 
 	var data map[string]interface{}
@@ -338,9 +338,9 @@ func fetchApi(ch chan Data, method, uri string, headers, params map[string]strin
 
 	d := json.NewDecoder(tempbuf)
 	d.UseNumber()
-	fmt.Printf("%+v\n", string(str))
+	//fmt.Printf("%+v\n", string(str))
 	checkErr(d.Decode(&data))
-	fmt.Printf("%+v\n", data)
+	//fmt.Printf("%+v\n", data)
 	ch <- Data{service, data}
 }
 
@@ -404,7 +404,7 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 		data = append(data, retData)
 	}
 
-	fmt.Printf("%+v\n", data)
+	//fmt.Printf("%+v\n", data)
 
 	w.Header().Set("Content-Type", "application/json")
 	body, err := json.Marshal(data)
@@ -421,6 +421,8 @@ func GetInitialize(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	runtime.GOMAXPROCS(runtime.NumCPU())
+
 	host := os.Getenv("ISUCON5_DB_HOST")
 	if host == "" {
 		host = "localhost"
