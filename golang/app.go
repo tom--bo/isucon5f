@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"database/sql"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"github.com/gorilla/sessions"
 	_ "github.com/lib/pq"
 	"html/template"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net/http"
@@ -313,10 +315,14 @@ func fetchApi(ch chan map[string]interface{}, method, uri string, headers, param
 	defer resp.Body.Close()
 
 	var data map[string]interface{}
-	d := json.NewDecoder(resp.Body)
+	str, _ := ioutil.ReadAll(resp.Body)
+	tempbuf := bytes.NewBuffer(str)
+
+	d := json.NewDecoder(tempbuf)
 	d.UseNumber()
-	fmt.Println("%+v", d)
+	fmt.Printf("%+v\n", string(str))
 	checkErr(d.Decode(&data))
+	fmt.Printf("%+v\n", data)
 	ch <- data
 }
 
@@ -335,7 +341,8 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 
 	ws := make(map[string]*Service)
 	rs := make(map[string]int)
-	data := make([]Data, 0, len(arg))
+	// data := make([]Data, 0, len(arg))
+	data := make([]Data, 0, 0)
 	ch := make(chan map[string]interface{}, 1)
 	for service, conf := range arg {
 		if service == "ken" || service == "ken2" {
@@ -359,9 +366,9 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 				ws[service] = conf
 				continue
 			}
-		} else {
-			rs[service] = 1
 		}
+		rs[service] = 1
+
 		//start := time.Now()
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
@@ -440,6 +447,8 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 		retData := <-ch2
 		data = append(data, Data{service, retData})
 	}
+
+	fmt.Printf("%+v\n", data)
 
 	w.Header().Set("Content-Type", "application/json")
 	body, err := json.Marshal(data)
