@@ -24,6 +24,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	// "time"
 )
 
@@ -49,6 +50,12 @@ type Service struct {
 type Data struct {
 	Service string                 `json:"service"`
 	Data    map[string]interface{} `json:"data"`
+}
+
+type ServiceMutex struct {
+	ken  *sync.Mutex
+	name *sync.Mutex
+	per  *sync.Mutex
 }
 
 var saltChars = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
@@ -279,7 +286,18 @@ func PostModify(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/modify", http.StatusSeeOther)
 }
 
-func fetchApi(ch chan Data, method, uri string, headers, params map[string]string, service string) {
+func fetchApi(ch chan Data, method, uri string, headers, params map[string]string, service string, sm ServiceMutex) {
+	if service == "ken" || service == "ken2" {
+		sm.ken.Lock()
+		defer sm.ken.Unlock()
+	} else if service == "surname" || service == "givenname" {
+		sm.name.Lock()
+		defer sm.name.Unlock()
+	} else if service == "perfectsec" || service == "perfectsec_attacked" {
+		sm.per.Lock()
+		defer sm.per.Unlock()
+	}
+
 	client := &http.Client{}
 	if strings.HasPrefix(uri, "https://") {
 		tr := &http.Transport{
@@ -339,36 +357,13 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 	var arg Arg
 	checkErr(json.Unmarshal([]byte(argJson), &arg))
 
-	ws := make(map[string]*Service)
-	rs := make(map[string]int)
-	// data := make([]Data, 0, len(arg))
+	var sm ServiceMutex
+	sm.ken = new(sync.Mutex)
+	sm.name = new(sync.Mutex)
+	sm.per = new(sync.Mutex)
 	data := make([]Data, 0, 0)
 	ch := make(chan Data)
 	for service, conf := range arg {
-		if service == "ken" || service == "ken2" {
-			_, ok := rs["ken"]
-			_, ok2 := rs["ken2"]
-			if ok || ok2 {
-				ws[service] = conf
-				continue
-			}
-		} else if service == "surname" || service == "givenname" {
-			_, ok := rs["surname"]
-			_, ok2 := rs["givenname"]
-			if ok || ok2 {
-				ws[service] = conf
-				continue
-			}
-		} else if service == "perfectsec" || service == "perfectsec_attacked" {
-			_, ok := rs["perfectsec"]
-			_, ok2 := rs["perfectsec_attacked"]
-			if ok || ok2 {
-				ws[service] = conf
-				continue
-			}
-		}
-		rs[service] = 1
-
 		//start := time.Now()
 		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
 		var method string
@@ -399,52 +394,13 @@ func GetData(w http.ResponseWriter, r *http.Request) {
 			ks[i] = s
 		}
 		uri := fmt.Sprintf(*uriTemplate, ks...)
-		go fetchApi(ch, method, uri, headers, params, service)
+		go fetchApi(ch, method, uri, headers, params, service, sm)
 
 		//end := time.Now()
 		//fmt.Printf("apiapiapi: %s %f秒\n", uri, (end.Sub(start)).Seconds())
 	}
-	for i := 0; i < len(rs); i++ {
+	for i := 0; i < len(arg); i++ {
 		retData := <-ch
-		data = append(data, retData)
-	}
-
-	ch2 := make(chan Data)
-	for service, conf := range ws {
-		row := db.QueryRow(`SELECT meth, token_type, token_key, uri FROM endpoints WHERE service=$1`, service)
-		var method string
-		var tokenType *string
-		var tokenKey *string
-		var uriTemplate *string
-		checkErr(row.Scan(&method, &tokenType, &tokenKey, &uriTemplate))
-
-		headers := make(map[string]string)
-		params := conf.Params
-		if params == nil {
-			params = make(map[string]string)
-		}
-
-		if tokenType != nil && tokenKey != nil {
-			switch *tokenType {
-			case "header":
-				headers[*tokenKey] = conf.Token
-				break
-			case "param":
-				params[*tokenKey] = conf.Token
-				break
-			}
-		}
-
-		ks := make([]interface{}, len(conf.Keys))
-		for i, s := range conf.Keys {
-			ks[i] = s
-		}
-		uri := fmt.Sprintf(*uriTemplate, ks...)
-		go fetchApi(ch2, method, uri, headers, params, service)
-	}
-
-	for i := 0; i < len(ws); i++ {
-		retData := <-ch2
 		data = append(data, retData)
 	}
 
